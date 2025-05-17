@@ -6,7 +6,9 @@ import specialtyController from "../controllers/specialtyController";
 import clinicController from "../controllers/clinicController";
 import adminController from "../controllers/adminController";
 import drugController from "../controllers/drugController";
-import homeController from "../controllers/homeController"
+import homeController from "../controllers/homeController";
+import * as ChatbotController from "../controllers/chatbot.controller";
+
 let router = express.Router();
 
 let initWebRoutes = (app) => {
@@ -158,6 +160,10 @@ let initWebRoutes = (app) => {
   router.delete("/api/delete-drug", drugController.handleDeleteDrug);
   router.get("/api/get-drug-by-id", drugController.getDrugInfoById);
 
+   // chatbot
+  router.post("/api/chatbot", ChatbotController.handleChatbotMessage);
+  router.get("/api/get-chat-history", ChatbotController.getChatHistoryBySessionId);
+  router.get("/api/get-user-chat-sessions", ChatbotController.getChatHistoryByUserId);
 
   return app.use("/", router);
 };
