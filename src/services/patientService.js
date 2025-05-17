@@ -41,13 +41,13 @@ let postBookAppointment = (data) => {
                     schedule.currentNumber = parseInt(schedule.currentNumber) + 1;
                     await schedule.save();
                   }else{
-                    resolve({
+                  return   resolve({
                       errCode: 3,
                       errMessage: "Limit max number booking!",
                     });
                   }
               }else{
-                  resolve({
+                return   resolve({
                     errCode: 3,
                     errMessage: "Limit max number booking!",
                   });

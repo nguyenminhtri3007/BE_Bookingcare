@@ -149,6 +149,7 @@ let getTopThreeIdDoctorOfTheYear = () => {
     }
   });
 };
+
 let getTotalRevenueDoctorEachMonthByDoctorId = (doctorId) => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -426,6 +427,27 @@ let getMonthlyRevenueSpecialty = () => {
   });
 };
 
+// o day
+let getTotalClinics = () => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      let clinics = await db.Clinic.findAll({
+        attributes: ["id"], 
+        raw: true,
+        nest: true,
+      });
+      let totalClinics = clinics.length;
+
+      resolve({
+        errCode: 0,
+        data: { totalClinics: totalClinics },
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
 module.exports = {
   getWeeklyRevenue: getWeeklyRevenue,
   getTotalNewUserDay: getTotalNewUserDay,
@@ -437,4 +459,5 @@ module.exports = {
     getTotalRevenueDoctorEachMonthByDoctorId,
   getTopFourVipPatient: getTopFourVipPatient,
   getMonthlyRevenueSpecialty: getMonthlyRevenueSpecialty,
+  getTotalClinics: getTotalClinics,
 };

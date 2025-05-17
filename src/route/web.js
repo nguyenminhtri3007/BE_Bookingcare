@@ -136,6 +136,8 @@ let initWebRoutes = (app) => {
     adminController.getTotalHealthAppointmentDone
   );
   router.get("/api/get-total-doctor", adminController.getTotalDoctor);
+  router.get("/api/get-total-clinics", adminController.getTotalClinics);
+
   router.get(
     "/api/get-top-three-doctors-of-the-year",
     adminController.getTopThreeDoctorsOfTheYear

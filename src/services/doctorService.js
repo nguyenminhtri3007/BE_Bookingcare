@@ -25,7 +25,8 @@ let getTopDoctorHome = (dataInput) => {
         where: { roleId: "R2" },
         order: [["createdAt", "DESC"]],
         attributes: {
-          exclude: ["password"],
+          exclude: ["password", ],
+          include: ["image"],
         },
         include: [
           {
@@ -58,6 +59,17 @@ let getTopDoctorHome = (dataInput) => {
 
       let users = await db.User.findAll(options);
 
+      // sửa ở đây
+      if (users && users.length > 0) {
+        users = users.map(user => {
+          if (user.image) {
+            user.image = Buffer.from(user.image, "base64").toString("binary");
+          }
+          return user;
+        });
+      }
+
+
       resolve({
         errCode: 0,
         data: users,
@@ -75,7 +87,8 @@ let getAllDoctors = () => {
         where: { roleId: "R2" },
         order: [["createdAt", "DESC"]],
         attributes: {
-          exclude: ["password","image"],
+          exclude: ["password"],
+          include: ["image"],
         },
         include: [
           {
@@ -113,6 +126,16 @@ let getAllDoctors = () => {
         raw: true,
         nest: true,
       });
+
+       if (doctors && doctors.length > 0) {
+        doctors = doctors.map((doc) => {
+          if (doc.image instanceof Buffer) {
+            doc.image = `data:image/jpeg;base64,${doc.image.toString("base64")}`;
+          }
+          return doc;
+        });
+      }
+      
 
       resolve({
         errCode: 0,
@@ -196,25 +219,6 @@ let filterDoctors = (data) => {
   });
 };
 
-// let getAllDoctors = () => {
-//   return new Promise(async (resolve, reject) => {
-//     try {
-//       let doctors = await db.User.findAll({
-//         where: { roleId: "R2" },
-//         attributes: {
-//           exclude: ["password", "image"],
-//         },
-//       });
-
-//       resolve({
-//         errCode: 0,
-//         data: doctors,
-//       });
-//     } catch (e) {
-//       reject(e);
-//     }
-//   });
-// };
 let checkRequiredFields = (inputData) => {
   let arrFields = [
     "doctorId",

@@ -90,6 +90,18 @@ let getMonthlyRevenueSpecialty = async (req, res) => {
     });
   }
 };
+let getTotalClinics = async (req, res) => {
+  try {
+    let infor = await adminService.getTotalClinics();
+    return res.status(200).json(infor);
+  } catch (e) {
+    console.log(e);
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Error from server",
+    });
+  }
+};
 
 module.exports = {
   getWeeklyRevenue: getWeeklyRevenue,
@@ -99,4 +111,5 @@ module.exports = {
   getTopThreeDoctorsOfTheYear: getTopThreeDoctorsOfTheYear,
   getTopFourVipPatient: getTopFourVipPatient,
   getMonthlyRevenueSpecialty: getMonthlyRevenueSpecialty,
+  getTotalClinics: getTotalClinics,
 };

@@ -126,7 +126,7 @@ let sendForgotPasswordEmail = async (dataSend) => {
 
   // send mail with defined transport object
   let info = await transporter.sendMail({
-    from: '"Huỳnh Minh Đức 👻" <duchmdev@gmail.com>', // sender address
+    from: '"Nguyễn Minh Trí 👻" <tritb30@gmail.com>', // sender address
     to: dataSend.receiverEmail, // list of receivers
     subject: "Thông tin lấy lại mật khẩu", // Subject line
     html: getBodyHTMLEmailForgotPassword(dataSend),
