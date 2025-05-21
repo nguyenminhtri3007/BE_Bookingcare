@@ -86,3 +86,28 @@ export const getChatHistoryByUserId = async (req, res) => {
     });
   }
 };
+
+
+export const deleteChatHistory = async (req, res) => {
+  try {
+    const { sessionId, userId } = req.body;
+    
+    if (!sessionId) {
+      return res.status(400).json({
+        errCode: 1,
+        errMessage: "Thiếu thông tin sessionId",
+        data: null,
+      });
+    }
+
+    const result = await ChatbotService.deleteChatHistory(sessionId, userId);
+    return res.status(200).json(result);
+  } catch (e) {
+    console.error('Error deleting chat history:', e);
+    return res.status(500).json({
+      errCode: 3,
+      errMessage: "Lỗi từ server",
+      data: null,
+    });
+  }
+};

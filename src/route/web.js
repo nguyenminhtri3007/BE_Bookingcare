@@ -164,6 +164,7 @@ let initWebRoutes = (app) => {
   router.post("/api/chatbot", ChatbotController.handleChatbotMessage);
   router.get("/api/get-chat-history", ChatbotController.getChatHistoryBySessionId);
   router.get("/api/get-user-chat-sessions", ChatbotController.getChatHistoryByUserId);
+  router.delete("/api/delete-chat-history", ChatbotController.deleteChatHistory);
 
   return app.use("/", router);
 };

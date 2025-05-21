@@ -543,14 +543,14 @@ let handleEditPassword = (data) => {
           errMessage: "Missing required parameter",
         });
       } else {
-       
+        console.log('>>> ' + data);
         let user = await db.User.findOne({
           where: { id: data.id },
           raw: false,
         });
         if (user) {
            //compare password
-           let check = await bcrypt.compareSync(data.currentPassword, user.password);
+           let check = await  bcrypt.compareSync(data.currentPassword, user.password);
 
            if (check) {
               let hashPasswordFromBcrypt = await hashUserPassword(data.newPassword);

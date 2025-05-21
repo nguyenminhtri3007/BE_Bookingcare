@@ -1,6 +1,7 @@
 import db from "../models";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { v4 as uuidv4 } from 'uuid';
+import { Op } from 'sequelize';
 
 // Khởi tạo Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AIzaSyCpQBr4evBkblM_xGFDcLGG_ntDj70nbzw");
@@ -40,15 +41,53 @@ const createDoctorSearchPrompt = async (query) => {
       nest: true,
     });
 
+     const today = new Date();
+    today.setHours(0,0,0,0);
+    const start = today.getTime();
+    const end = (new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3)).getTime();
+
+
+    const doctorSchedules = await Promise.all(doctors.map(async (doctor) => {
+      const schedules = await db.Schedule.findAll({
+        where: { 
+           doctorId: doctor.id ,
+           date: { [Op.gte]: start, [Op.lt]: end }
+          },
+        include: [
+          {
+            model: db.Allcode,
+            as: "timeTypeData",
+            attributes: ["valueVi"],
+          }
+        ],
+        raw: false,
+        nest: true,
+      });
+
+      return {
+        doctorId: doctor.id,
+        schedules: schedules.map(schedule => ({
+         date: new Date(Number(schedule.date)).toLocaleDateString('vi-VN'),
+          timeType: schedule.timeTypeData.valueVi,
+          currentNumber: schedule.currentNumber,
+          maxNumber: schedule.maxNumber,
+          availableSlots: schedule.maxNumber - schedule.currentNumber
+        }))
+      };
+    }));
+
+
     // Chuyển đổi dữ liệu bác sĩ thành chuỗi để đưa vào prompt
     const doctorsInfo = doctors.map(doctor => {
+      const doctorSchedule = doctorSchedules.find(ds => ds.doctorId === doctor.id);
       return {
         id: doctor.id,
         name: `${doctor.lastName} ${doctor.firstName}`,
         position: doctor.positionData ? doctor.positionData.valueVi : '',
         specialty: doctor.Doctor_Infor && doctor.Doctor_Infor.specialtyData ? doctor.Doctor_Infor.specialtyData.name : '',
         description: doctor.Markdown ? doctor.Markdown.description : '',
-        content: doctor.Markdown ? doctor.Markdown.contentMarkdown : ''
+        content: doctor.Markdown ? doctor.Markdown.contentMarkdown : '',
+        schedules: doctorSchedule ? doctorSchedule.schedules : []
       };
     });
 
@@ -276,9 +315,15 @@ const generateDoctorResponse = async (prompt) => {
     Hãy tìm kiếm thông tin về bác sĩ dựa trên dữ liệu được cung cấp.
     Dữ liệu bác sĩ: ${prompt.doctorsInfo}
     
-    Hãy cung cấp thông tin chi tiết về bác sĩ phù hợp với yêu cầu tìm kiếm. 
-    Nếu có nhiều bác sĩ phù hợp, hãy liệt kê 3-5 bác sĩ phù hợp nhất.
-    Format trả lời ngắn gọn, dễ hiểu.
+    Hãy cung cấp thông tin chi tiết về bác sĩ phù hợp với yêu cầu tìm kiếm, bao gồm:
+    1. Thông tin cơ bản về bác sĩ (tên, chuyên khoa, vị trí)
+    2. Lịch khám trong thời gian tới, bao gồm:
+       - Ngày khám
+       - Ca khám (sáng/chiều/tối)
+       - Số lượng slot còn trống
+    3. Nếu có nhiều bác sĩ phù hợp, hãy liệt kê 3-5 bác sĩ phù hợp nhất.
+    
+    Format trả lời ngắn gọn, dễ hiểu, tập trung vào thông tin lịch khám còn trống.
     Nếu không tìm thấy bác sĩ phù hợp, hãy đề xuất tìm kiếm theo chuyên khoa hoặc cơ sở y tế.
     `;
 
@@ -372,5 +417,32 @@ const generateGeneralResponse = async (query) => {
   } catch (error) {
     console.error('Error generating general response:', error);
     return { error: 'Không thể tạo phản hồi cho câu hỏi của bạn.' };
+  }
+};
+
+export const deleteChatHistory = async (sessionId, userId) => {
+  try {
+    const whereClause = { sessionId };
+    if (userId) {
+      whereClause.userId = userId;
+    }
+
+    // Xóa tất cả chat history có sessionId tương ứng
+    await db.ChatHistory.destroy({
+      where: whereClause
+    });
+
+    return {
+      errCode: 0,
+      errMessage: "Xóa lịch sử chat thành công",
+      data: null
+    };
+  } catch (error) {
+    console.error('Error deleting chat history:', error);
+    return {
+      errCode: 1,
+      errMessage: "Không thể xóa lịch sử chat",
+      data: null
+    };
   }
 };
