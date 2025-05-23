@@ -8,6 +8,7 @@ import adminController from "../controllers/adminController";
 import drugController from "../controllers/drugController";
 import homeController from "../controllers/homeController";
 import * as ChatbotController from "../controllers/chatbot.controller";
+import * as ReviewController from "../controllers/reviewController"
 
 let router = express.Router();
 
@@ -165,6 +166,14 @@ let initWebRoutes = (app) => {
   router.get("/api/get-chat-history", ChatbotController.getChatHistoryBySessionId);
   router.get("/api/get-user-chat-sessions", ChatbotController.getChatHistoryByUserId);
   router.delete("/api/delete-chat-history", ChatbotController.deleteChatHistory);
+
+  // review 
+router.post("/api/review", ReviewController.createReview);
+router.get("/api/review/doctor", ReviewController.getDoctorReviews); 
+router.get("/api/review/patient-reviewed-histories", ReviewController.getReviewedHistoriesByPatient);
+router.get("/api/review/:id", ReviewController.getReviewById);
+router.put("/api/review/:id", ReviewController.updateReview);
+router.delete("/api/review/:id", ReviewController.deleteReview);
 
   return app.use("/", router);
 };

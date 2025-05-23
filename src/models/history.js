@@ -14,6 +14,10 @@ module.exports = (sequelize, DataTypes) => {
           targetKey: "id",
           as: "doctorDataHistory",
         });
+        History.hasOne(models.Review, {
+        foreignKey: "historyId",
+        as: "reviewData",
+      });
     }
   }
   History.init(
@@ -25,7 +29,7 @@ module.exports = (sequelize, DataTypes) => {
       drugs: DataTypes.TEXT,
       reason: DataTypes.STRING,
       createdAt:DataTypes.DATE,
-      updatedAt:DataTypes.DATE
+      updatedAt:DataTypes.DATE,
     },
     {
       sequelize,
