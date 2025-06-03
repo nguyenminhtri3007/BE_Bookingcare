@@ -98,3 +98,24 @@ export const getReviewedHistoriesByPatient = async (req, res) => {
     return res.status(500).json({ errCode: 2, errMessage: "Lỗi server", data: null });
   }
 }; 
+
+export const getDoctorReviewStats = async (req, res) => {
+  try {
+    const doctorId = req.query.doctorId || req.params.doctorId;
+    if (!doctorId) {
+      return res.status(400).json({ errCode: 1, errMessage: "DoctorId is required", data: null });
+    }
+    const doctorIdNumber = parseInt(doctorId, 10);
+    if (isNaN(doctorIdNumber)) {
+      return res.status(400).json({ errCode: 1, errMessage: "DoctorId must be a number", data: null });
+    }
+    const result = await ReviewService.getDoctorReviewStats(doctorIdNumber);
+    if (result.error) {
+      return res.status(500).json({ errCode: 2, errMessage: result.error, data: null });
+    }
+    return res.status(200).json({ errCode: 0, errMessage: "OK", data: result.data });
+  } catch (e) {
+    console.error("Error in getDoctorReviewStats controller:", e);
+    return res.status(500).json({ errCode: 2, errMessage: "Lỗi server", data: null });
+  }
+}; 

@@ -101,3 +101,36 @@ export const getReviewedHistoriesByPatient = async (patientId, historyIds) => {
     return { error: "Server error while fetching reviewed histories.", data: [] };
   }
 }; 
+
+export const getDoctorReviewStats = async (doctorId) => {
+  try {
+    const reviews = await db.Review.findAll({
+      where: { doctorId },
+      attributes: ["rating"],
+      raw: true,
+    });
+
+    if (!reviews || reviews.length === 0) {
+      return {
+        data: {
+          totalReviews: 0,
+          averageRating: 0,
+        }
+      };
+    }
+
+    const totalReviews = reviews.length;
+    const sumOfRatings = reviews.reduce((sum, review) => sum + review.rating, 0);
+    const averageRating = totalReviews > 0 ? sumOfRatings / totalReviews : 0;
+
+    return {
+      data: {
+        totalReviews,
+        averageRating: parseFloat(averageRating.toFixed(1)),
+      }
+    };
+  } catch (e) {
+    console.error("Error in getDoctorReviewStats service:", e);
+    return { error: "Server error while fetching doctor review stats." };
+  }
+}; 

@@ -992,6 +992,30 @@ let createRemedy = (data) => {
     }
   });
 };
+
+let getTotalAppointmentsByDoctorId = (doctorId) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!doctorId) {
+        resolve({
+          errCode: 1,
+          errMessage: "Missing required parameter: doctorId",
+        });
+      }
+      const count = await db.History.count({
+        where: { doctorId: doctorId },
+      });
+      resolve({
+        errCode: 0,
+        data: { totalAppointments: count },
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
+
 module.exports = {
   getTopDoctorHome: getTopDoctorHome,
   getAllDoctors: getAllDoctors,
@@ -1007,4 +1031,5 @@ module.exports = {
   createRemedy: createRemedy,
   getBookingById: getBookingById,
   filterDoctors: filterDoctors,
+   getTotalAppointmentsByDoctorId: getTotalAppointmentsByDoctorId,
 };

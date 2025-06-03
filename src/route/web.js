@@ -175,6 +175,10 @@ router.get("/api/review/:id", ReviewController.getReviewById);
 router.put("/api/review/:id", ReviewController.updateReview);
 router.delete("/api/review/:id", ReviewController.deleteReview);
 
+// 
+  router.get("/api/doctor-review-stats", ReviewController.getDoctorReviewStats);
+ router.get("/api/doctor-total-appointments", doctorController.getTotalAppointmentsByDoctorId);
+
   return app.use("/", router);
 };
 

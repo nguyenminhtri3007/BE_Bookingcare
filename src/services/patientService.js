@@ -37,8 +37,9 @@ let postBookAppointment = (data) => {
               });
       
               if(schedule){
-                  if(schedule.currentNumber<schedule.maxNumber){
-                    schedule.currentNumber = parseInt(schedule.currentNumber) + 1;
+                 let currentNumber = Number(schedule.currentNumber ?? 0); 
+                 if (currentNumber < schedule.maxNumber) {
+                 schedule.currentNumber = currentNumber + 1;
                     await schedule.save();
                   }else{
                   return   resolve({

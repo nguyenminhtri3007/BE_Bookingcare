@@ -192,6 +192,32 @@ let filterDoctors = async (req, res) => {
   }
 };
 
+let getTotalAppointmentsByDoctorId = async (req, res) => {
+  try {
+    const doctorId = req.query.doctorId || req.params.doctorId;
+    if (!doctorId) {
+      return res.status(400).json({
+        errCode: 1,
+        errMessage: "Missing required parameter: doctorId",
+      });
+    }
+    const doctorIdNumber = parseInt(doctorId, 10);
+    if (isNaN(doctorIdNumber)) {
+        return res.status(400).json({ errCode: 1, errMessage: "DoctorId must be a number" });
+    }
+
+    let result = await doctorService.getTotalAppointmentsByDoctorId(doctorIdNumber);
+    return res.status(200).json(result);
+  } catch (e) {
+    console.log(e);
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Error from server",
+    });
+  }
+};
+
+
 module.exports = {
   getTopDoctorHome: getTopDoctorHome,
   getAllDoctors: getAllDoctors,
@@ -206,5 +232,6 @@ module.exports = {
   cancelBooking: cancelBooking,
   createRemedy: createRemedy,
   getBookingById:getBookingById,
-  filterDoctors:filterDoctors
+  filterDoctors:filterDoctors,
+  getTotalAppointmentsByDoctorId: getTotalAppointmentsByDoctorId,
 };

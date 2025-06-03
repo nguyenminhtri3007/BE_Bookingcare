@@ -78,8 +78,29 @@ const createDoctorSearchPrompt = async (query) => {
 
 
     // Chuyển đổi dữ liệu bác sĩ thành chuỗi để đưa vào prompt
-    const doctorsInfo = doctors.map(doctor => {
+   const doctorsDataWithReviews = await Promise.all(doctors.map(async (doctor) => {
       const doctorSchedule = doctorSchedules.find(ds => ds.doctorId === doctor.id);
+
+      // Fetch reviews for this doctor
+      const reviews = await db.Review.findAll({
+        where: { doctorId: doctor.id },
+        include: [
+          {
+            model: db.User,
+            as: "patientReviewData",
+            attributes: ["firstName", "lastName"]
+          }
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: 2, // Get top 2 recent reviews
+        raw: false,
+        nest: true
+      });
+
+      const formattedReviews = reviews.map(review => ({
+        patientName: `${review.patientReviewData?.lastName || ''} ${review.patientReviewData?.firstName || ''}`.trim() || 'Bệnh nhân ẩn danh',
+        comment: review.comment
+      })).filter(r => r.comment); 
       return {
         id: doctor.id,
         name: `${doctor.lastName} ${doctor.firstName}`,
@@ -87,13 +108,16 @@ const createDoctorSearchPrompt = async (query) => {
         specialty: doctor.Doctor_Infor && doctor.Doctor_Infor.specialtyData ? doctor.Doctor_Infor.specialtyData.name : '',
         description: doctor.Markdown ? doctor.Markdown.description : '',
         content: doctor.Markdown ? doctor.Markdown.contentMarkdown : '',
-        schedules: doctorSchedule ? doctorSchedule.schedules : []
+        schedules: doctorSchedule ? doctorSchedule.schedules : [],
+         reviews: formattedReviews
       };
-    });
+ }));
+
+     const doctorsInfoString = JSON.stringify(doctorsDataWithReviews);
 
     // Tạo prompt
     return {
-      doctorsInfo: JSON.stringify(doctorsInfo),
+       doctorsInfo: doctorsInfoString,
       query: query
     };
   } catch (error) {
@@ -162,28 +186,42 @@ const createClinicSearchPrompt = async (query) => {
 };
 
 // Hàm chính để xử lý yêu cầu từ người dùng
+
 export const processUserQuery = async (userQuery, userId, sessionId) => {
   try {
-    // Phân loại truy vấn để xác định loại thông tin mà người dùng đang tìm kiếm
+
     const queryType = classifyQuery(userQuery);
     let prompt;
     let result;
+    let chatHistoryForPrompt = '';
+
+    // Nếu có sessionId, lấy lịch sử chat gần đây để làm ngữ cảnh
+    if (sessionId) {
+      const historyResult = await getChatHistoryBySessionId(sessionId);
+      if (historyResult.errCode === 0 && historyResult.data.length > 0) {
+      
+        const recentHistory = historyResult.data.slice(-4);
+        chatHistoryForPrompt = recentHistory.map(entry => `${entry.userId ? 'Người dùng' : 'Trợ lý AI'}: ${entry.message || entry.response}`).join('\n');
+      }
+    }
+
+    const fullQuery = chatHistoryForPrompt ? `${chatHistoryForPrompt}\nNgười dùng: ${userQuery}` : `Người dùng: ${userQuery}`;
 
     switch (queryType) {
       case 'doctor':
-        prompt = await createDoctorSearchPrompt(userQuery);
-        result = await generateDoctorResponse(prompt);
+        prompt = await createDoctorSearchPrompt(userQuery); // userQuery gốc vẫn dùng để tìm kiếm data
+        result = await generateDoctorResponse(prompt, fullQuery); // fullQuery (có kèm lịch sử) cho AI hiểu ngữ cảnh
         break;
       case 'specialty':
         prompt = await createSpecialtySearchPrompt(userQuery);
-        result = await generateSpecialtyResponse(prompt);
+        result = await generateSpecialtyResponse(prompt, fullQuery);
         break;
       case 'clinic':
         prompt = await createClinicSearchPrompt(userQuery);
-        result = await generateClinicResponse(prompt);
+        result = await generateClinicResponse(prompt, fullQuery);
         break;
       default:
-        result = await generateGeneralResponse(userQuery);
+        result = await generateGeneralResponse(fullQuery);
         break;
     }
 
@@ -311,25 +349,46 @@ const generateDoctorResponse = async (prompt) => {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
     const systemInstruction = `
-    Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh. 
-    Hãy tìm kiếm thông tin về bác sĩ dựa trên dữ liệu được cung cấp.
-    Dữ liệu bác sĩ: ${prompt.doctorsInfo}
-    
-    Hãy cung cấp thông tin chi tiết về bác sĩ phù hợp với yêu cầu tìm kiếm, bao gồm:
-    1. Thông tin cơ bản về bác sĩ (tên, chuyên khoa, vị trí)
-    2. Lịch khám trong thời gian tới, bao gồm:
-       - Ngày khám
-       - Ca khám (sáng/chiều/tối)
-       - Số lượng slot còn trống
-    3. Nếu có nhiều bác sĩ phù hợp, hãy liệt kê 3-5 bác sĩ phù hợp nhất.
-    
-    Format trả lời ngắn gọn, dễ hiểu, tập trung vào thông tin lịch khám còn trống.
-    Nếu không tìm thấy bác sĩ phù hợp, hãy đề xuất tìm kiếm theo chuyên khoa hoặc cơ sở y tế.
+     Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh BookingCare.
+    Nhiệm vụ của bạn là cung cấp thông tin về bác sĩ dựa trên dữ liệu sau: ${prompt.doctorsInfo}
+
+    QUAN TRỌNG NHẤT: YÊU CẦU CỦA NGƯỜI DÙNG có thể bao gồm LỊCH SỬ TRÒ CHUYỆN. Hãy PHÂN TÍCH KỸ LỊCH SỬ này.
+    - Nếu câu hỏi hiện tại của người dùng không nêu rõ tên bác sĩ (ví dụ: "bác sĩ này", "ông ấy", "lịch khám của bác sĩ đó ra sao?"), BẠN PHẢI TỰ SUY LUẬN xem người dùng đang ám chỉ bác sĩ nào dựa vào tên bác sĩ đã được nhắc đến gần nhất trong lịch sử trò chuyện.
+    - Sau khi xác định được bác sĩ từ lịch sử (nếu cần), hãy sử dụng thông tin bác sĩ đó trong dữ liệu doctorsInfo (nếu có) để trả lời.
+    - Nếu dữ liệu doctorsInfo trống hoặc không khớp với bác sĩ suy luận từ lịch sử, hãy lịch sự yêu cầu người dùng cung cấp lại tên bác sĩ cụ thể.
+
+    Hãy xử lý yêu cầu của người dùng theo các trường hợp sau (sau khi đã xác định đúng bác sĩ đang được nói đến):
+
+    1.  **Nếu người dùng hỏi thông tin chung về bác sĩ** (ví dụ: "Thông tin bác sĩ X", "Bác sĩ X là ai?"):
+        *   Chỉ cung cấp: Tên đầy đủ (bao gồm học hàm/vị trí), chuyên khoa, và vị trí công tác của bác sĩ.
+        *   Sau đó, gợi ý rằng người dùng có thể hỏi thêm về "lịch khám" hoặc "đánh giá" của bác sĩ.
+        *   Ví dụ trả lời: "Bác sĩ Nguyễn Văn A là chuyên khoa Tim Mạch, hiện đang công tác tại Bệnh viện Y. Bạn muốn xem lịch khám hay đánh giá của bác sĩ không?"
+
+    2.  **Nếu người dùng hỏi cụ thể về lịch khám của bác sĩ** (ví dụ: "Lịch khám bác sĩ X?", "Bác sĩ X có lịch làm việc ngày mai không?"):
+        *   Cung cấp: Tên đầy đủ, chuyên khoa, vị trí công tác.
+        *   Sau đó, cung cấp chi tiết lịch khám trong những ngày tới (nếu có), bao gồm: Ngày khám, Ca khám (ví dụ: 8:00 - 9:00), và Số lượng chỗ còn trống.
+        *   Format lịch khám rõ ràng, dễ đọc.
+        *   Nếu không có lịch khám, hãy thông báo: "Hiện tại bác sĩ X chưa có lịch khám trong thời gian tới. Bạn có thể tham khảo bác sĩ khác cùng chuyên khoa."
+
+    3.  **Nếu người dùng hỏi về chất lượng hoặc đánh giá của bác sĩ** (ví dụ: "Bác sĩ X khám có tốt không?", "Review bác sĩ X", "Đánh giá về bác sĩ X"):
+        *   Cung cấp: Tên đầy đủ, chuyên khoa, vị trí công tác.
+        *   Sau đó, trích dẫn tối đa 2 đánh giá gần đây nhất của bệnh nhân về bác sĩ đó (nếu có trong dữ liệu 'reviews').
+        *   Định dạng đánh giá: "Bệnh nhân [Tên bệnh nhân]: [Nội dung đánh giá]"
+            *   Ví dụ: "Bệnh nhân Minh Tú: Bác sĩ rất nhiệt tình và chuyên môn cao."
+            *   Ví dụ: "Bệnh nhân Hoàng Anh: Thăm khám kỹ lưỡng, tư vấn rõ ràng."
+        *   Nếu không có đánh giá nào, hãy thông báo: "Hiện tại chưa có đánh giá nào cho bác sĩ X. Bạn có thể xem lịch khám của bác sĩ."
+
+    4.  **Nếu có nhiều bác sĩ phù hợp với một yêu cầu chung (không chỉ rõ tên bác sĩ)**, hãy liệt kê 3-5 bác sĩ phù hợp nhất dựa trên truy vấn.
+
+    **Lưu ý chung:**
+    *   Luôn trả lời bằng tiếng Việt, lịch sự và rõ ràng.
+    *   Nếu không tìm thấy thông tin bác sĩ theo tên được yêu cầu, hãy thông báo không tìm thấy và gợi ý tìm kiếm theo chuyên khoa hoặc tên khác.
+    *   Ưu tiên thông tin chính xác từ dữ liệu được cung cấp.
     `;
 
     const result = await model.generateContent([
       systemInstruction,
-      `Yêu cầu tìm kiếm bác sĩ: ${prompt.query}`
+       `Yêu cầu của người dùng: ${prompt.query}`
     ]);
     
     return { response: result.response.text() };
@@ -401,16 +460,24 @@ const generateGeneralResponse = async (query) => {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
     const systemInstruction = `
-    Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh BookingCare.
-    Hãy trả lời câu hỏi chung về hệ thống đặt lịch khám bệnh.
-    Nếu người dùng có vẻ đang tìm kiếm thông tin, hãy gợi ý họ tìm kiếm theo bác sĩ, chuyên khoa hoặc cơ sở y tế.
-    Ví dụ: "Bạn có thể tìm kiếm bác sĩ [chuyên khoa], hoặc tìm thông tin về [chuyên khoa], hoặc tìm kiếm cơ sở y tế [tên cơ sở]."
-    Trả lời ngắn gọn, thân thiện và hữu ích.
+     Bạn là trợ lý ảo của hệ thống đặt lịch khám bệnh BookingCare.
+    Nhiệm vụ của bạn là hỗ trợ người dùng và trả lời các câu hỏi chung.
+
+    Hãy cố gắng hiểu ý định của người dùng:
+    *   Nếu người dùng chào hỏi, hãy chào lại một cách thân thiện.
+    *   Nếu người dùng hỏi về chức năng của hệ thống (ví dụ: "Bạn có thể làm gì?", "Hệ thống này dùng để làm gì?"), hãy giải thích ngắn gọn rằng bạn có thể giúp tìm bác sĩ, chuyên khoa, cơ sở y tế, xem lịch khám và đặt lịch.
+    *   Nếu câu hỏi không rõ ràng hoặc không liên quan đến y tế/đặt lịch, hãy nhẹ nhàng thông báo rằng bạn chuyên về hỗ trợ đặt lịch khám và gợi ý họ hỏi về bác sĩ, chuyên khoa, hoặc phòng khám.
+        Ví dụ: "Tôi có thể giúp bạn tìm thông tin bác sĩ, chuyên khoa, hoặc cơ sở y tế. Bạn cần hỗ trợ gì cụ thể ạ?"
+    *   Nếu người dùng có vẻ muốn tìm kiếm thông tin y tế cụ thể, hãy khuyến khích họ sử dụng các từ khóa như "bác sĩ [tên/chuyên khoa]", "chuyên khoa [tên chuyên khoa]", "phòng khám [tên/địa điểm]".
+        Ví dụ: "Để tìm bác sĩ, bạn có thể hỏi 'Tìm bác sĩ chuyên khoa Tim Mạch' hoặc 'Thông tin bác sĩ Nguyễn Văn A'."
+    *   Nếu người dùng cảm ơn, hãy đáp lại lịch sự.
+
+    Luôn trả lời bằng tiếng Việt, ngắn gọn, thân thiện và hữu ích.
     `;
 
     const result = await model.generateContent([
       systemInstruction,
-      `Câu hỏi: ${query}`
+      `Câu hỏi từ người dùng: ${query}`
     ]);
     
     return { response: result.response.text() };
