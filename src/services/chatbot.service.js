@@ -3,13 +3,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
 
-// Khởi tạo Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AIzaSyCpQBr4evBkblM_xGFDcLGG_ntDj70nbzw");
 
-// Hàm để tạo prompt tìm kiếm bác sĩ
 const createDoctorSearchPrompt = async (query) => {
   try {
-    // Lấy danh sách bác sĩ từ cơ sở dữ liệu
     const doctors = await db.User.findAll({
       where: { roleId: "R2" },
       attributes: {
@@ -46,8 +43,7 @@ const createDoctorSearchPrompt = async (query) => {
     const start = today.getTime();
     const end = (new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3)).getTime();
 
-
-    const doctorSchedules = await Promise.all(doctors.map(async (doctor) => {
+   const doctorSchedules = await Promise.all(doctors.map(async (doctor) => {
       const schedules = await db.Schedule.findAll({
         where: { 
            doctorId: doctor.id ,
@@ -76,12 +72,10 @@ const createDoctorSearchPrompt = async (query) => {
       };
     }));
 
-
     // Chuyển đổi dữ liệu bác sĩ thành chuỗi để đưa vào prompt
    const doctorsDataWithReviews = await Promise.all(doctors.map(async (doctor) => {
       const doctorSchedule = doctorSchedules.find(ds => ds.doctorId === doctor.id);
 
-      // Fetch reviews for this doctor
       const reviews = await db.Review.findAll({
         where: { doctorId: doctor.id },
         include: [
@@ -92,7 +86,7 @@ const createDoctorSearchPrompt = async (query) => {
           }
         ],
         order: [["createdAt", "DESC"]],
-        limit: 2, // Get top 2 recent reviews
+        limit: 2, 
         raw: false,
         nest: true
       });
@@ -112,9 +106,7 @@ const createDoctorSearchPrompt = async (query) => {
          reviews: formattedReviews
       };
  }));
-
      const doctorsInfoString = JSON.stringify(doctorsDataWithReviews);
-
     // Tạo prompt
     return {
        doctorsInfo: doctorsInfoString,
@@ -126,16 +118,14 @@ const createDoctorSearchPrompt = async (query) => {
   }
 };
 
-// Hàm để tạo prompt tìm kiếm chuyên khoa
 const createSpecialtySearchPrompt = async (query) => {
   try {
-    // Lấy danh sách chuyên khoa từ cơ sở dữ liệu
+  
     const specialties = await db.Specialty.findAll({
       attributes: ['id', 'name', 'descriptionMarkdown', 'descriptionHTML'],
       raw: true
     });
 
-    // Chuyển đổi dữ liệu chuyên khoa thành chuỗi để đưa vào prompt
     const specialtiesInfo = specialties.map(specialty => {
       return {
         id: specialty.id,
@@ -155,16 +145,14 @@ const createSpecialtySearchPrompt = async (query) => {
   }
 };
 
-// Hàm để tạo prompt tìm kiếm cơ sở y tế
 const createClinicSearchPrompt = async (query) => {
   try {
-    // Lấy danh sách cơ sở y tế từ cơ sở dữ liệu
+    
     const clinics = await db.Clinic.findAll({
       attributes: ['id', 'name', 'address', 'descriptionMarkdown'],
       raw: true
     });
 
-    // Chuyển đổi dữ liệu cơ sở y tế thành chuỗi để đưa vào prompt
     const clinicsInfo = clinics.map(clinic => {
       return {
         id: clinic.id,
@@ -185,58 +173,127 @@ const createClinicSearchPrompt = async (query) => {
   }
 };
 
-// Hàm chính để xử lý yêu cầu từ người dùng
 
+const getLastDoctorNameFromHistory = (history) => {
+  if (!history || !Array.isArray(history)) return null;
+  // Duyệt ngược để tìm response có tên bác sĩ
+  for (let i = history.length - 1; i >= 0; i--) {
+    const entry = history[i];
+    // Ưu tiên messageType là 'doctor' và response có "Bác sĩ ..."
+    if (entry.messageType === 'doctor' && entry.response) {
+      const match = entry.response.match(/Bác sĩ ([^,\n]+)/i);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    // Nếu user hỏi rõ tên bác sĩ trong message
+    if (entry.message && /bác sĩ ([a-zA-ZÀ-ỹ\s]+)/i.test(entry.message)) {
+      const match = entry.message.match(/bác sĩ ([a-zA-ZÀ-ỹ\s]+)/i);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+  }
+  return null;
+};
+
+const hasGreetedInSession = (history) => {
+  if (!history || !Array.isArray(history)) return false;
+  return history.some(entry => entry.response && /(chào bạn|xin chào|rất vui được hỗ trợ)/i.test(entry.response));
+};
+
+// Hàm phân tích intent truy vấn bác sĩ
+const detectDoctorIntent = (query) => {
+  const q = query.toLowerCase();
+  if (/bác sĩ nữ|bác sĩ là nữ|bác sĩ nữ nào|bác sĩ nữ giỏi|bác sĩ nữ tốt/i.test(q)) return { type: 'female' };
+  if (/bác sĩ nam|bác sĩ là nam|bác sĩ nam nào|bác sĩ nam giỏi|bác sĩ nam tốt/i.test(q)) return { type: 'male' };
+  if (/bác sĩ trẻ|bác sĩ nhỏ tuổi|bác sĩ trẻ tuổi/i.test(q)) return { type: 'young' };
+  if (/bác sĩ lớn tuổi|bác sĩ già|bác sĩ kinh nghiệm/i.test(q)) return { type: 'senior' };
+  if (/bác sĩ giỏi|bác sĩ tốt|bác sĩ nhiều review tốt|bác sĩ nhiều đánh giá tốt|bác sĩ nổi bật|bác sĩ uy tín/i.test(q)) return { type: 'topreview' };
+  if (/so sánh bác sĩ|bác sĩ nào tốt hơn|bác sĩ nào phù hợp/i.test(q)) return { type: 'compare' };
+  return { type: 'default' };
+};
+
+// Hàm phân tích intent truy vấn chuyên khoa
+const detectSpecialtyIntent = (query) => {
+  const q = query.toLowerCase();
+  if (/triệu chứng|tôi bị|tôi có|tôi cảm thấy|nên khám khoa gì|khám khoa nào|chuyên khoa phù hợp|bệnh gì|đau ở đâu|đau (họng|bụng|ngực|đầu|lưng|chân|tay)/i.test(q)) return { type: 'symptom' };
+  return { type: 'default' };
+};
+
+// Hàm chính để xử lý yêu cầu từ người dùng
 export const processUserQuery = async (userQuery, userId, sessionId) => {
   try {
-
     const queryType = classifyQuery(userQuery);
     let prompt;
     let result;
     let chatHistoryForPrompt = '';
+    let historyResult = { errCode: 1, data: [] };
+    let history = [];
 
-    // Nếu có sessionId, lấy lịch sử chat gần đây để làm ngữ cảnh
     if (sessionId) {
-      const historyResult = await getChatHistoryBySessionId(sessionId);
+      historyResult = await getChatHistoryBySessionId(sessionId);
       if (historyResult.errCode === 0 && historyResult.data.length > 0) {
-      
-        const recentHistory = historyResult.data.slice(-4);
+        history = historyResult.data;
+        const recentHistory = history.slice(-6);
         chatHistoryForPrompt = recentHistory.map(entry => `${entry.userId ? 'Người dùng' : 'Trợ lý AI'}: ${entry.message || entry.response}`).join('\n');
       }
     }
 
-    const fullQuery = chatHistoryForPrompt ? `${chatHistoryForPrompt}\nNgười dùng: ${userQuery}` : `Người dùng: ${userQuery}`;
+    let processedUserQuery = userQuery;
+    if (queryType === 'doctor' && /(bác sĩ này|bác sĩ đó|bác sĩ ấy|bác sĩ kia|ông ấy|bà ấy)/i.test(userQuery)) {
+      const lastDoctorName = getLastDoctorNameFromHistory(history);
+      if (lastDoctorName) {
+        processedUserQuery = userQuery.replace(/bác sĩ (này|đó|ấy|kia)|ông ấy|bà ấy/gi, `bác sĩ ${lastDoctorName}`);
+      }
+    }
+
+    let alreadyGreeted = hasGreetedInSession(history);
+    let fullQuery = chatHistoryForPrompt ? `${chatHistoryForPrompt}\nNgười dùng: ${processedUserQuery}` : `Người dùng: ${processedUserQuery}`;
+
+    // Intent & lọc danh sách phù hợp
+    let doctorIntent = null;
+    let specialtyIntent = null;
+    let doctorFilter = null;
+    let specialtyFilter = null;
+    if (queryType === 'doctor') {
+      doctorIntent = detectDoctorIntent(processedUserQuery);
+      doctorFilter = doctorIntent.type;
+    }
+    if (queryType === 'specialty') {
+      specialtyIntent = detectSpecialtyIntent(processedUserQuery);
+      specialtyFilter = specialtyIntent.type;
+    }
 
     switch (queryType) {
       case 'doctor':
-        prompt = await createDoctorSearchPrompt(userQuery); // userQuery gốc vẫn dùng để tìm kiếm data
-        result = await generateDoctorResponse(prompt, fullQuery); // fullQuery (có kèm lịch sử) cho AI hiểu ngữ cảnh
+        prompt = await createDoctorSearchPrompt(processedUserQuery);
+        if (doctorFilter && doctorFilter !== 'default') prompt.doctorFilter = doctorFilter;
+        if (alreadyGreeted) prompt.alreadyGreeted = true;
+        result = await generateDoctorResponse(prompt, fullQuery, alreadyGreeted);
         break;
       case 'specialty':
-        prompt = await createSpecialtySearchPrompt(userQuery);
-        result = await generateSpecialtyResponse(prompt, fullQuery);
+        prompt = await createSpecialtySearchPrompt(processedUserQuery);
+        if (specialtyFilter && specialtyFilter !== 'default') prompt.specialtyFilter = specialtyFilter;
+        if (alreadyGreeted) prompt.alreadyGreeted = true;
+        result = await generateSpecialtyResponse(prompt, fullQuery, alreadyGreeted);
         break;
       case 'clinic':
-        prompt = await createClinicSearchPrompt(userQuery);
-        result = await generateClinicResponse(prompt, fullQuery);
+        prompt = await createClinicSearchPrompt(processedUserQuery);
+        if (alreadyGreeted) prompt.alreadyGreeted = true;
+        result = await generateClinicResponse(prompt, fullQuery, alreadyGreeted);
         break;
       default:
-        result = await generateGeneralResponse(fullQuery);
+        result = await generateGeneralResponse(fullQuery, alreadyGreeted);
         break;
     }
 
-    // Lưu lịch sử chat
     if (!result.error) {
-      // Nếu không có sessionId, tạo mới
       if (!sessionId) {
         sessionId = uuidv4();
       }
-      
-      // Lưu vào database
       await saveChatHistory(userId, sessionId, userQuery, result.response, queryType);
     }
-
-    // Trả về kết quả và sessionId
     return { ...result, sessionId };
   } catch (error) {
     console.error('Error processing user query:', error);
@@ -248,7 +305,7 @@ export const processUserQuery = async (userQuery, userId, sessionId) => {
 const saveChatHistory = async (userId, sessionId, message, response, messageType) => {
   try {
     await db.ChatHistory.create({
-      userId: userId || null, // Nếu không có userId (người dùng chưa đăng nhập) thì lưu null
+      userId: userId || null, 
       sessionId: sessionId,
       message: message,
       response: response,
@@ -288,7 +345,7 @@ export const getChatHistoryBySessionId = async (sessionId) => {
 // Lấy lịch sử chat theo userId
 export const getChatHistoryByUserId = async (userId) => {
   try {
-    // Lấy tất cả các sessionId của user
+   
     const sessions = await db.ChatHistory.findAll({
       attributes: ['sessionId', [db.sequelize.fn('MAX', db.sequelize.col('createdAt')), 'lastActivity']],
       where: { userId: userId },
@@ -329,7 +386,6 @@ export const getChatHistoryByUserId = async (userId) => {
   }
 };
 
-// Phân loại truy vấn
 const classifyQuery = (query) => {
   query = query.toLowerCase();
   if (query.includes('bác sĩ') || query.includes('doctor') || query.includes('chuyên gia') || query.includes('bs')) {
@@ -344,53 +400,48 @@ const classifyQuery = (query) => {
 };
 
 // Tạo phản hồi cho truy vấn về bác sĩ
-const generateDoctorResponse = async (prompt) => {
+const generateDoctorResponse = async (prompt, fullQuery, alreadyGreeted = false) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    
-    const systemInstruction = `
+    let systemInstruction = `
      Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh BookingCare.
     Nhiệm vụ của bạn là cung cấp thông tin về bác sĩ dựa trên dữ liệu sau: ${prompt.doctorsInfo}
-
     QUAN TRỌNG NHẤT: YÊU CẦU CỦA NGƯỜI DÙNG có thể bao gồm LỊCH SỬ TRÒ CHUYỆN. Hãy PHÂN TÍCH KỸ LỊCH SỬ này.
     - Nếu câu hỏi hiện tại của người dùng không nêu rõ tên bác sĩ (ví dụ: "bác sĩ này", "ông ấy", "lịch khám của bác sĩ đó ra sao?"), BẠN PHẢI TỰ SUY LUẬN xem người dùng đang ám chỉ bác sĩ nào dựa vào tên bác sĩ đã được nhắc đến gần nhất trong lịch sử trò chuyện.
     - Sau khi xác định được bác sĩ từ lịch sử (nếu cần), hãy sử dụng thông tin bác sĩ đó trong dữ liệu doctorsInfo (nếu có) để trả lời.
     - Nếu dữ liệu doctorsInfo trống hoặc không khớp với bác sĩ suy luận từ lịch sử, hãy lịch sự yêu cầu người dùng cung cấp lại tên bác sĩ cụ thể.
-
+    - Nếu prompt.doctorFilter là 'female', chỉ ưu tiên trả lời về các bác sĩ nữ. Nếu là 'male', chỉ ưu tiên bác sĩ nam. Nếu là 'topreview', ưu tiên bác sĩ có nhiều đánh giá tốt. Nếu là 'young', ưu tiên bác sĩ trẻ. Nếu là 'senior', ưu tiên bác sĩ lớn tuổi/kinh nghiệm. Nếu là 'compare', hãy so sánh các bác sĩ phù hợp nhất.
+    - Nếu có nhiều bác sĩ phù hợp, hãy liệt kê 3-5 bác sĩ phù hợp nhất, kèm mô tả ngắn gọn từng người.
+    - Luôn gợi ý thêm các lựa chọn liên quan nếu có.
+    - Trả lời đa dạng, linh hoạt, không lặp lại một mẫu câu.
     Hãy xử lý yêu cầu của người dùng theo các trường hợp sau (sau khi đã xác định đúng bác sĩ đang được nói đến):
-
     1.  **Nếu người dùng hỏi thông tin chung về bác sĩ** (ví dụ: "Thông tin bác sĩ X", "Bác sĩ X là ai?"):
         *   Chỉ cung cấp: Tên đầy đủ (bao gồm học hàm/vị trí), chuyên khoa, và vị trí công tác của bác sĩ.
         *   Sau đó, gợi ý rằng người dùng có thể hỏi thêm về "lịch khám" hoặc "đánh giá" của bác sĩ.
-        *   Ví dụ trả lời: "Bác sĩ Nguyễn Văn A là chuyên khoa Tim Mạch, hiện đang công tác tại Bệnh viện Y. Bạn muốn xem lịch khám hay đánh giá của bác sĩ không?"
-
     2.  **Nếu người dùng hỏi cụ thể về lịch khám của bác sĩ** (ví dụ: "Lịch khám bác sĩ X?", "Bác sĩ X có lịch làm việc ngày mai không?"):
         *   Cung cấp: Tên đầy đủ, chuyên khoa, vị trí công tác.
         *   Sau đó, cung cấp chi tiết lịch khám trong những ngày tới (nếu có), bao gồm: Ngày khám, Ca khám (ví dụ: 8:00 - 9:00), và Số lượng chỗ còn trống.
         *   Format lịch khám rõ ràng, dễ đọc.
         *   Nếu không có lịch khám, hãy thông báo: "Hiện tại bác sĩ X chưa có lịch khám trong thời gian tới. Bạn có thể tham khảo bác sĩ khác cùng chuyên khoa."
-
     3.  **Nếu người dùng hỏi về chất lượng hoặc đánh giá của bác sĩ** (ví dụ: "Bác sĩ X khám có tốt không?", "Review bác sĩ X", "Đánh giá về bác sĩ X"):
         *   Cung cấp: Tên đầy đủ, chuyên khoa, vị trí công tác.
         *   Sau đó, trích dẫn tối đa 2 đánh giá gần đây nhất của bệnh nhân về bác sĩ đó (nếu có trong dữ liệu 'reviews').
         *   Định dạng đánh giá: "Bệnh nhân [Tên bệnh nhân]: [Nội dung đánh giá]"
-            *   Ví dụ: "Bệnh nhân Minh Tú: Bác sĩ rất nhiệt tình và chuyên môn cao."
-            *   Ví dụ: "Bệnh nhân Hoàng Anh: Thăm khám kỹ lưỡng, tư vấn rõ ràng."
         *   Nếu không có đánh giá nào, hãy thông báo: "Hiện tại chưa có đánh giá nào cho bác sĩ X. Bạn có thể xem lịch khám của bác sĩ."
-
-    4.  **Nếu có nhiều bác sĩ phù hợp với một yêu cầu chung (không chỉ rõ tên bác sĩ)**, hãy liệt kê 3-5 bác sĩ phù hợp nhất dựa trên truy vấn.
-
+    4.  **Nếu có nhiều bác sĩ phù hợp với một yêu cầu chung (không chỉ rõ tên bác sĩ)**, hãy liệt kê 3-5 bác sĩ phù hợp nhất dựa trên truy vấn, ưu tiên theo filter nếu có.
     **Lưu ý chung:**
     *   Luôn trả lời bằng tiếng Việt, lịch sự và rõ ràng.
     *   Nếu không tìm thấy thông tin bác sĩ theo tên được yêu cầu, hãy thông báo không tìm thấy và gợi ý tìm kiếm theo chuyên khoa hoặc tên khác.
     *   Ưu tiên thông tin chính xác từ dữ liệu được cung cấp.
+    *   Trả lời đa dạng, không lặp lại một mẫu câu.
     `;
-
+    if (alreadyGreeted) {
+      systemInstruction += '\nQUAN TRỌNG: Không cần chào lại người dùng nếu đã chào trong hội thoại này.';
+    }
     const result = await model.generateContent([
       systemInstruction,
        `Yêu cầu của người dùng: ${prompt.query}`
     ]);
-    
     return { response: result.response.text() };
   } catch (error) {
     console.error('Error generating doctor response:', error);
@@ -399,26 +450,28 @@ const generateDoctorResponse = async (prompt) => {
 };
 
 // Tạo phản hồi cho truy vấn về chuyên khoa
-const generateSpecialtyResponse = async (prompt) => {
+const generateSpecialtyResponse = async (prompt, fullQuery, alreadyGreeted = false) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    
-    const systemInstruction = `
+    let systemInstruction = `
     Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh. 
     Hãy tìm kiếm thông tin về chuyên khoa dựa trên dữ liệu được cung cấp.
     Dữ liệu chuyên khoa: ${prompt.specialtiesInfo}
-    
+    - Nếu prompt.specialtyFilter là 'symptom', hãy cố gắng phân tích triệu chứng hoặc mô tả của người dùng để gợi ý chuyên khoa phù hợp nhất.
+    - Nếu có nhiều chuyên khoa phù hợp, hãy liệt kê 2-3 chuyên khoa liên quan, kèm mô tả ngắn gọn.
+    - Trả lời đa dạng, linh hoạt, không lặp lại một mẫu câu.
     Hãy cung cấp thông tin chi tiết về chuyên khoa phù hợp với yêu cầu tìm kiếm.
     Nêu rõ tên chuyên khoa, mô tả và các dịch vụ chính.
     Format trả lời ngắn gọn, dễ hiểu.
     Nếu không tìm thấy chuyên khoa phù hợp, hãy đề xuất tìm kiếm theo bác sĩ hoặc cơ sở y tế.
     `;
-
+    if (alreadyGreeted) {
+      systemInstruction += '\nQUAN TRỌNG: Không cần chào lại người dùng nếu đã chào trong hội thoại này.';
+    }
     const result = await model.generateContent([
       systemInstruction,
       `Yêu cầu tìm kiếm chuyên khoa: ${prompt.query}`
     ]);
-    
     return { response: result.response.text() };
   } catch (error) {
     console.error('Error generating specialty response:', error);
@@ -427,26 +480,25 @@ const generateSpecialtyResponse = async (prompt) => {
 };
 
 // Tạo phản hồi cho truy vấn về cơ sở y tế
-const generateClinicResponse = async (prompt) => {
+const generateClinicResponse = async (prompt, fullQuery, alreadyGreeted = false) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    
-    const systemInstruction = `
+    let systemInstruction = `
     Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh. 
     Hãy tìm kiếm thông tin về cơ sở y tế dựa trên dữ liệu được cung cấp.
     Dữ liệu cơ sở y tế: ${prompt.clinicsInfo}
-    
     Hãy cung cấp thông tin chi tiết về cơ sở y tế phù hợp với yêu cầu tìm kiếm.
     Nêu rõ tên cơ sở y tế, địa chỉ và mô tả.
     Format trả lời ngắn gọn, dễ hiểu.
     Nếu không tìm thấy cơ sở y tế phù hợp, hãy đề xuất tìm kiếm theo bác sĩ hoặc chuyên khoa.
     `;
-
+    if (alreadyGreeted) {
+      systemInstruction += '\nQUAN TRỌNG: Không cần chào lại người dùng nếu đã chào trong hội thoại này.';
+    }
     const result = await model.generateContent([
       systemInstruction,
       `Yêu cầu tìm kiếm cơ sở y tế: ${prompt.query}`
     ]);
-    
     return { response: result.response.text() };
   } catch (error) {
     console.error('Error generating clinic response:', error);
@@ -455,14 +507,12 @@ const generateClinicResponse = async (prompt) => {
 };
 
 // Tạo phản hồi chung cho các câu hỏi không phân loại được
-const generateGeneralResponse = async (query) => {
+const generateGeneralResponse = async (query, alreadyGreeted = false) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    
-    const systemInstruction = `
+    let systemInstruction = `
      Bạn là trợ lý ảo của hệ thống đặt lịch khám bệnh BookingCare.
     Nhiệm vụ của bạn là hỗ trợ người dùng và trả lời các câu hỏi chung.
-
     Hãy cố gắng hiểu ý định của người dùng:
     *   Nếu người dùng chào hỏi, hãy chào lại một cách thân thiện.
     *   Nếu người dùng hỏi về chức năng của hệ thống (ví dụ: "Bạn có thể làm gì?", "Hệ thống này dùng để làm gì?"), hãy giải thích ngắn gọn rằng bạn có thể giúp tìm bác sĩ, chuyên khoa, cơ sở y tế, xem lịch khám và đặt lịch.
@@ -471,15 +521,15 @@ const generateGeneralResponse = async (query) => {
     *   Nếu người dùng có vẻ muốn tìm kiếm thông tin y tế cụ thể, hãy khuyến khích họ sử dụng các từ khóa như "bác sĩ [tên/chuyên khoa]", "chuyên khoa [tên chuyên khoa]", "phòng khám [tên/địa điểm]".
         Ví dụ: "Để tìm bác sĩ, bạn có thể hỏi 'Tìm bác sĩ chuyên khoa Tim Mạch' hoặc 'Thông tin bác sĩ Nguyễn Văn A'."
     *   Nếu người dùng cảm ơn, hãy đáp lại lịch sự.
-
     Luôn trả lời bằng tiếng Việt, ngắn gọn, thân thiện và hữu ích.
     `;
-
+    if (alreadyGreeted) {
+      systemInstruction += '\nQUAN TRỌNG: Không cần chào lại người dùng nếu đã chào trong hội thoại này.';
+    }
     const result = await model.generateContent([
       systemInstruction,
       `Câu hỏi từ người dùng: ${query}`
     ]);
-    
     return { response: result.response.text() };
   } catch (error) {
     console.error('Error generating general response:', error);
@@ -494,7 +544,6 @@ export const deleteChatHistory = async (sessionId, userId) => {
       whereClause.userId = userId;
     }
 
-    // Xóa tất cả chat history có sessionId tương ứng
     await db.ChatHistory.destroy({
       where: whereClause
     });
