@@ -741,11 +741,42 @@ let cancelBooking = (data) => {
             statusId: "S2",
           },
           raw: false,
+          include: [
+            {
+              model: db.User,
+              as: "patientData",
+              attributes: ["email", "firstName", "lastName", "address", "gender", "phonenumber"],
+            },
+            {
+              model: db.Allcode,
+              as: "timeTypeDataPatient",
+              attributes: ["valueEn", "valueVi"],
+            },
+          ],
         });
 
         if (appoinment) {
           appoinment.statusId = "S4";
           await appoinment.save();
+          let doctor = await db.User.findOne({
+            where: { id: data.doctorId },
+            attributes: ["firstName", "lastName"],
+          });
+
+          // Lấy ngôn ngữ, thời gian khám
+          let language = data.language || "vi";
+          let time = language === "vi" ? (appoinment.timeTypeDataPatient?.valueVi || "") : (appoinment.timeTypeDataPatient?.valueEn || "");
+          let doctorName = doctor ? `${doctor.lastName} ${doctor.firstName}` : "";
+          let patientName = appoinment.patientName || (appoinment.patientData?.firstName || "");
+
+          // Gửi email thông báo hủy lịch
+          await emailService.sendCancelBookingEmail({
+            receiverEmail: appoinment.patientData?.email,
+            patientName: patientName,
+            time: time,
+            doctorName: doctorName,
+            language: language,
+          });
         }
 
         resolve({

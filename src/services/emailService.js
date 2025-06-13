@@ -148,8 +148,54 @@ let getBodyHTMLEmailForgotPassword = (dataSend) => {
   return result;
 };
 
+let getBodyHTMLEmailCancel = (dataSend) => {
+  let result = "";
+  if (dataSend.language === "vi") {
+    result = `
+<h3><b>Xin chào ${dataSend.patientName}!</b></h3>
+<p>Bạn nhận được email này vì lịch hẹn khám bệnh online của bạn đã bị hủy bởi bác sĩ.</p>
+<p>Thông tin lịch hẹn:</p>
+<div><b>Thời gian: ${dataSend.time}</b></div>
+<div><b>Bác sĩ: ${dataSend.doctorName}</b></div>
+<p>Nếu có thắc mắc, vui lòng liên hệ lại với chúng tôi hoặc bác sĩ để biết thêm chi tiết.</p>
+<div>Xin chân thành cảm ơn!</div>
+`;
+  }
+  if (dataSend.language === "en") {
+    result = `
+    <h3><b>Dear ${dataSend.patientName}!</b></h3>
+    <p>Your online medical appointment has been cancelled by the doctor.</p>
+    <p>Appointment information:</p>
+    <div><b>Time: ${dataSend.time}</b></div>
+    <div><b>Doctor: ${dataSend.doctorName}</b></div>
+    <p>If you have any questions, please contact us or your doctor for more details.</p>
+    <div>Sincerely thank!</div>
+    `;
+  }
+  return result;
+};
+
+let sendCancelBookingEmail = async (dataSend) => {
+  let transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    auth: {
+      user: process.env.EMAIL_APP,
+      pass: process.env.EMAIL_APP_PASSWORD,
+    },
+  });
+  await transporter.sendMail({
+    from: '" 👻" <tritb30@gmail.com>',
+    to: dataSend.receiverEmail,
+    subject: dataSend.language === "vi" ? "Thông báo hủy lịch khám bệnh" : "Appointment Cancellation Notice",
+    html: getBodyHTMLEmailCancel(dataSend),
+  });
+};
+
 module.exports = {
   sendSimpleEmail: sendSimpleEmail,
   sendAttachment: sendAttachment,
   sendForgotPasswordEmail: sendForgotPasswordEmail,
+  sendCancelBookingEmail: sendCancelBookingEmail,
 };

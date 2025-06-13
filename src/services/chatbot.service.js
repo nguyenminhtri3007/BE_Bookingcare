@@ -20,13 +20,18 @@ const createDoctorSearchPrompt = async (query) => {
         },
         {
           model: db.Doctor_Infor,
-          attributes: ["specialtyId"],
+          attributes: ["specialtyId", "priceId"],
           include: [
             {
               model: db.Specialty,
               as: "specialtyData",
               attributes: ["name"],
             },
+            {
+              model: db.Allcode,
+              as: "priceTypeData",
+              attributes: ["valueVi", "valueEn"],
+            }
           ],
         },
         {
@@ -95,6 +100,19 @@ const createDoctorSearchPrompt = async (query) => {
         patientName: `${review.patientReviewData?.lastName || ''} ${review.patientReviewData?.firstName || ''}`.trim() || 'Bệnh nhân ẩn danh',
         comment: review.comment
       })).filter(r => r.comment); 
+
+       // Format price information - keep numeric format
+      let priceInfo = '';
+      if (doctor.Doctor_Infor && doctor.Doctor_Infor.priceTypeData) {
+        const price = doctor.Doctor_Infor.priceTypeData.valueVi;
+        if (!isNaN(price)) {
+          // Format price with dots for thousands and add đ symbol
+          priceInfo = `${parseInt(price).toLocaleString('vi-VN')}đ`;
+        } else {
+          priceInfo = price;
+        }
+      }
+
       return {
         id: doctor.id,
         name: `${doctor.lastName} ${doctor.firstName}`,
@@ -103,7 +121,8 @@ const createDoctorSearchPrompt = async (query) => {
         description: doctor.Markdown ? doctor.Markdown.description : '',
         content: doctor.Markdown ? doctor.Markdown.contentMarkdown : '',
         schedules: doctorSchedule ? doctorSchedule.schedules : [],
-         reviews: formattedReviews
+        reviews: formattedReviews,
+        price: priceInfo
       };
  }));
      const doctorsInfoString = JSON.stringify(doctorsDataWithReviews);
@@ -205,6 +224,9 @@ const hasGreetedInSession = (history) => {
 // Hàm phân tích intent truy vấn bác sĩ
 const detectDoctorIntent = (query) => {
   const q = query.toLowerCase();
+   if (/giá khám|phí khám|tiền khám|chi phí khám|bao nhiêu tiền|giá bao nhiêu/i.test(q)) {
+    return { type: 'price' };
+  }
   if (/bác sĩ nữ|bác sĩ là nữ|bác sĩ nữ nào|bác sĩ nữ giỏi|bác sĩ nữ tốt/i.test(q)) return { type: 'female' };
   if (/bác sĩ nam|bác sĩ là nam|bác sĩ nam nào|bác sĩ nam giỏi|bác sĩ nam tốt/i.test(q)) return { type: 'male' };
   if (/bác sĩ trẻ|bác sĩ nhỏ tuổi|bác sĩ trẻ tuổi/i.test(q)) return { type: 'young' };
@@ -403,9 +425,18 @@ const classifyQuery = (query) => {
 const generateDoctorResponse = async (prompt, fullQuery, alreadyGreeted = false) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+     let doctorsInfoToPrompt = JSON.parse(prompt.doctorsInfo);
+
+    if (prompt.doctorFilter !== 'price') {
+      doctorsInfoToPrompt = doctorsInfoToPrompt.map(doctor => {
+        const { price, ...rest } = doctor;
+        return rest;
+      });
+    }
+
     let systemInstruction = `
      Bạn là một trợ lý ảo cho hệ thống đặt lịch khám bệnh BookingCare.
-    Nhiệm vụ của bạn là cung cấp thông tin về bác sĩ dựa trên dữ liệu sau: ${prompt.doctorsInfo}
+    Nhiệm vụ của bạn là cung cấp thông tin về bác sĩ dựa trên dữ liệu sau: ${JSON.stringify(doctorsInfoToPrompt)}
     QUAN TRỌNG NHẤT: YÊU CẦU CỦA NGƯỜI DÙNG có thể bao gồm LỊCH SỬ TRÒ CHUYỆN. Hãy PHÂN TÍCH KỸ LỊCH SỬ này.
     - Nếu câu hỏi hiện tại của người dùng không nêu rõ tên bác sĩ (ví dụ: "bác sĩ này", "ông ấy", "lịch khám của bác sĩ đó ra sao?"), BẠN PHẢI TỰ SUY LUẬN xem người dùng đang ám chỉ bác sĩ nào dựa vào tên bác sĩ đã được nhắc đến gần nhất trong lịch sử trò chuyện.
     - Sau khi xác định được bác sĩ từ lịch sử (nếu cần), hãy sử dụng thông tin bác sĩ đó trong dữ liệu doctorsInfo (nếu có) để trả lời.
@@ -428,7 +459,13 @@ const generateDoctorResponse = async (prompt, fullQuery, alreadyGreeted = false)
         *   Sau đó, trích dẫn tối đa 2 đánh giá gần đây nhất của bệnh nhân về bác sĩ đó (nếu có trong dữ liệu 'reviews').
         *   Định dạng đánh giá: "Bệnh nhân [Tên bệnh nhân]: [Nội dung đánh giá]"
         *   Nếu không có đánh giá nào, hãy thông báo: "Hiện tại chưa có đánh giá nào cho bác sĩ X. Bạn có thể xem lịch khám của bác sĩ."
-    4.  **Nếu có nhiều bác sĩ phù hợp với một yêu cầu chung (không chỉ rõ tên bác sĩ)**, hãy liệt kê 3-5 bác sĩ phù hợp nhất dựa trên truy vấn, ưu tiên theo filter nếu có.
+    4.  **Nếu có nhiều bác sĩ phù hợp với một yêu cầu chung (không chỉ rõ tên bác sĩ)**, hãy liệt kê 3-5 bác sĩ phù hợp nhất dựa trên truy vấn, ưu tiên theo filter nếu có.KHÔNG BAO GỒM GIÁ KHÁM.
+   5. **Nếu người dùng hỏi về giá khám** (ví dụ: "Giá khám của bác sĩ X?", "Phí khám bác sĩ Y bao nhiêu?", "Chi phí khám của bác sĩ Z?"):
+        * Cung cấp: Tên đầy đủ, chuyên khoa.
+        * Sau đó, nêu rõ giá khám theo định dạng số (ví dụ: "500.000đ").
+        * Nếu không có thông tin giá khám, hãy thông báo: "Hiện tại chưa có thông tin về giá khám của bác sĩ X. Bạn có thể liên hệ trực tiếp với phòng khám để biết thêm chi tiết."
+        * Nếu người dùng hỏi so sánh giá khám giữa các bác sĩ, hãy liệt kê giá khám của các bác sĩ phù hợp để so sánh.
+    
     **Lưu ý chung:**
     *   Luôn trả lời bằng tiếng Việt, lịch sự và rõ ràng.
     *   Nếu không tìm thấy thông tin bác sĩ theo tên được yêu cầu, hãy thông báo không tìm thấy và gợi ý tìm kiếm theo chuyên khoa hoặc tên khác.
